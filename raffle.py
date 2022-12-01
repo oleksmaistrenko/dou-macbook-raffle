@@ -77,7 +77,7 @@ def select_winner(monobank_data: Sequence[Any]):
         choosen = random.choice(slots)
         logging.info(f'\n{"Selected person:":<32}{choosen}')
     else:
-        logging.info(f'Not enough of donations bigger than UAH {int(min_amount/100)}')
+        logging.info('Not enough of donations bigger than UAH %s', int(min_amount/100))
 
 
 def send_telegram_message(telegram_token: str, chat_id: str, message: str) -> None:
