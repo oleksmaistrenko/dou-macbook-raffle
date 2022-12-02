@@ -128,6 +128,4 @@ def lambda_handler(event, context):
         logging.info(monobank_data)
         select_winner(monobank_data, chat_id)
 
-        send_telegram_message(telegram_token, chat_id, f'hello, @{username}')
-
     return {}
