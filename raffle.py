@@ -14,6 +14,7 @@ jar_id = os.environ.get('monobank_jar_id')
 allowed_users = os.environ.get('users', 'oleksm')
 telegram_token = os.environ.get('telegram_token')
 
+
 def mask_email(email: str) -> str:
     '''
     Mask the last symbols of email
@@ -22,7 +23,8 @@ def mask_email(email: str) -> str:
     if len(email) > 0:
         leave_part = 0.6
         masked_len = len(email) - int(len(email) * leave_part)
-        masked_email = email[0:int(len(email) * leave_part)] + ''.join('*' * masked_len)
+        masked_email = email[0:int(
+            len(email) * leave_part)] + ''.join('*' * masked_len)
     return masked_email
 
 
@@ -36,7 +38,7 @@ def get_data_from_jar(token: str, unix_time: int, jar_id: str) -> Union[int, Seq
     return r.status, json.loads(r.data.decode('utf-8'))
 
 
-def select_winner(monobank_data: Sequence[Any]):
+def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
     '''
     Populate slots and select a winner
     '''
@@ -45,6 +47,9 @@ def select_winner(monobank_data: Sequence[Any]):
     total = 0
     unique_donators = set()
     biggest_donation = 0
+
+    counter = 15
+    message = ''
 
     for el in monobank_data:
         donation = el['amount']
@@ -62,15 +67,26 @@ def select_winner(monobank_data: Sequence[Any]):
         if donation >= min_amount:
             times = int(donation / min_amount)
             full_details = f'{person} ({mask_email(comment)}) @ {str(datetime.fromtimestamp(donation_time))}'
-            logging.info(f'Thanks, {full_details:<80} included {times} time(s)')
+            logging.info(
+                f'Thanks, {full_details:<80} included {times} time(s)')
+            message += f'Thanks, {full_details:<80} included {times} time(s)\n'
             slots.extend([full_details] * times)
         else:
             logging.info(f'Thanks, {person:<80} unfortunately excluded due to donation of {donation/100:.2f} UAH')
+            message += f'Thanks, {person:<80} unfortunately excluded due to donation of {donation/100:.2f} UAH\n'
+        counter -= 1
+        if counter == 0:
+            counter = 15
+            send_telegram_message(telegram_token, chat_id, message)
 
     logging.info(f'\n{"Totally raised:":<32}{total/100:,.2f} UAH')
     logging.info(f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH')
     logging.info(f'{"Number of unique donators:":<32}{len(unique_donators)}')
     logging.info(f'{"Number of slots:":<32}{len(slots)}')
+    message = f'\n{"Totally raised:":<32}{total/100:,.2f} UAH\n' + f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH' + \
+        f'{"Number of unique donators:":<32}{len(unique_donators)}' + \
+        f'{"Number of slots:":<32}{len(slots)}'
+    send_telegram_message(telegram_token, chat_id, message)
 
     if len(slots) > 0:
         random.seed()
@@ -92,6 +108,7 @@ def send_telegram_message(telegram_token: str, chat_id: str, message: str) -> No
     r = http.request('POST', telegram_url, body=data, headers=headers)
     logging.info(r.status)
 
+
 def lambda_handler(event, context):
     '''
     lamdba handler
@@ -109,7 +126,7 @@ def lambda_handler(event, context):
         status, monobank_data = get_data_from_jar(monobank_token, unix_timestamp, jar_id)
         logging.info(status)
         logging.info(monobank_data)
-        select_winner(monobank_data)
+        select_winner(monobank_data, chat_id)
 
         send_telegram_message(telegram_token, chat_id, f'hello, @{username}')
 
