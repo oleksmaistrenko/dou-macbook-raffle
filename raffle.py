@@ -84,8 +84,8 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
     logging.info(f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH')
     logging.info(f'{"Number of unique donators:":<32}{len(unique_donators)}')
     logging.info(f'{"Number of slots:":<32}{len(slots)}')
-    message = f'\n{"Totally raised:":<32}{total/100:,.2f} UAH\n' + f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH' + \
-        f'{"Number of unique donators:":<32}{len(unique_donators)}' + \
+    message = f'\n{"Totally raised:":<32}{total/100:,.2f} UAH\n' + f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH\n' + \
+        f'{"Number of unique donators:":<32}{len(unique_donators)}\n' + \
         f'{"Number of slots:":<32}{len(slots)}'
     send_telegram_message(telegram_token, chat_id, message)
 
@@ -93,6 +93,7 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
         random.seed()
         choosen = random.choice(slots)
         logging.info(f'\n{"Selected person:":<32}{choosen}')
+        send_telegram_message(telegram_token, chat_id, f'\n{"Selected person:":<32}{choosen}')
     else:
         logging.info('Not enough of donations bigger than UAH %s', int(min_amount/100))
 
