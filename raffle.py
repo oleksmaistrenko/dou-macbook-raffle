@@ -76,8 +76,9 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
             message += f'Thanks, {person:<80} unfortunately excluded due to donation of {donation/100:.2f} UAH\n'
         counter -= 1
         if counter == 0:
-            counter = 15
             send_telegram_message(telegram_token, chat_id, message)
+            counter = 15
+            message = ''
 
     logging.info(f'\n{"Totally raised:":<32}{total/100:,.2f} UAH')
     logging.info(f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH')
