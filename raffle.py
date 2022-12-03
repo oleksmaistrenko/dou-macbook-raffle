@@ -21,10 +21,11 @@ def mask_email(email: str) -> str:
     '''
     masked_email = email
     if len(email) > 0:
-        leave_part = 0.6
+        email, email_domain = email.split('@')
+        leave_part = 0.3
         masked_len = len(email) - int(len(email) * leave_part)
-        masked_email = email[0:int(
-            len(email) * leave_part)] + ''.join('*' * masked_len)
+        masked_email = email[0:int(len(email) * leave_part)] + ''.join('*' * masked_len)
+        masked_email += f'@{email_domain}'
     return masked_email
 
 
@@ -43,13 +44,11 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
     Populate slots and select a winner
     '''
     slots = []
+    donations = ['person, email, donation time, amount, times included']
     min_amount = 500 * 100
     total = 0
     unique_donators = set()
     biggest_donation = 0
-
-    counter = 15
-    message = ''
 
     for el in monobank_data:
         donation = el['amount']
@@ -57,28 +56,26 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
         email = ''
         for comment_part in el.get('comment', '').replace('\n', ' ').split(' '):
             if comment_part.find('@') > 0:
-                email = comment_part.split('@')[0]
+                # email = comment_part.split('@')[0]
+                email = comment_part
         comment = email
         person = el['description'].split(': ')[1]
         unique_donators.add(person)
         total += donation
         if donation > biggest_donation:
             biggest_donation = donation
+        times = 0
         if donation >= min_amount:
             times = int(donation / min_amount)
             full_details = f'{person} ({mask_email(comment)}) @ {str(datetime.fromtimestamp(donation_time))}'
-            logging.info(
-                f'Thanks, {full_details:<80} included {times} time(s)')
-            message += f'Thanks, {full_details:<80} included {times} time(s)\n'
+            logging.info(f'{full_details} included {times} time(s)')
             slots.extend([full_details] * times)
         else:
-            logging.info(f'Thanks, {person:<80} unfortunately excluded due to donation of {donation/100:.2f} UAH')
-            message += f'Thanks, {person:<80} unfortunately excluded due to donation of {donation/100:.2f} UAH\n'
-        counter -= 1
-        if counter == 0:
-            send_telegram_message(telegram_token, chat_id, message)
-            counter = 15
-            message = ''
+            logging.info(f'{person} unfortunately excluded due to donation of {donation/100:.2f} UAH')
+        donations.append(f'{person}, {comment}, {str(datetime.fromtimestamp(donation_time))}, {donation/100}, {times}')
+
+    send_telegram_file(telegram_token, chat_id, 'donations.csv', '\n'.join(donations).encode('utf-8'))
+    send_telegram_file(telegram_token, chat_id, 'slots.csv', '\n'.join(slots).encode('utf-8'))
 
     logging.info(f'\n{"Totally raised:":<32}{total/100:,.2f} UAH')
     logging.info(f'{"Biggest donation:":<32}{biggest_donation/100:,.2f} UAH')
@@ -92,7 +89,7 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
     if len(slots) > 0:
         random.seed()
         choosen = random.choice(slots)
-        logging.info(f'\n{"Selected person:":<32}{choosen}')
+        logging.info(f'\n{"Winner:":<32}{choosen}')
         send_telegram_message(telegram_token, chat_id, f'\n{"Selected person:":<32}{choosen}')
     else:
         logging.info('Not enough of donations bigger than UAH %s', int(min_amount/100))
@@ -110,6 +107,14 @@ def send_telegram_message(telegram_token: str, chat_id: str, message: str) -> No
     r = http.request('POST', telegram_url, body=data, headers=headers)
     logging.info(r.status)
 
+def send_telegram_file(telegram_token: str, chat_id: str, file_name: str, file_data) -> None:
+    '''
+    send telegram message to the specified chat
+    '''
+    telegram_url = f'https://api.telegram.org/bot{telegram_token}/sendDocument?chat_id={chat_id}'
+    http = urllib3.PoolManager()
+    r = http.request_encode_body('POST', telegram_url, fields={'document': (file_name, file_data, 'text/plain')})
+    logging.info(r.data)
 
 def lambda_handler(event, context):
     '''
