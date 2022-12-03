@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil import tz
 import json
 import random
@@ -51,6 +51,8 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
     total = 0
     unique_donators = set()
     biggest_donation = 0
+    amount_of_excluded = 0
+    amount_of_min_donators = 0
 
     for el in monobank_data:
         donation = el['amount']
@@ -70,21 +72,29 @@ def select_winner(monobank_data: Sequence[Any], chat_id: str) -> None:
         if donation >= min_amount:
             times = int(donation / min_amount)
             full_details = f'{person} ({mask_email(comment)}) @ {str(datetime.fromtimestamp(donation_time))}'
-            logging.info(f'{full_details} included {times} time(s)')
+            logging.debug(f'{full_details} included {times} time(s)')
             slots.extend([full_details] * times)
+            if donation == min_amount:
+                amount_of_min_donators += 1
         else:
-            logging.info(f'{person} unfortunately excluded due to donation of {donation/100:.2f} UAH')
+            amount_of_excluded += 1
+            logging.debug(f'{person} unfortunately excluded due to donation of {donation/100:.2f} UAH')
         donations.append(f'{person}, {comment}, {str(datetime.fromtimestamp(donation_time))}, {donation/100}, {times}')
 
     send_telegram_file(telegram_token, chat_id, 'donations.csv', '\n'.join(donations).encode('utf-8'))
     send_telegram_file(telegram_token, chat_id, 'slots.csv', '\n'.join(slots).encode('utf-8'))
 
     logging.info(f'Totally raised: {total/100:,.2f} UAH')
-    logging.info(f'The Biggest donation: {biggest_donation/100:,.2f} UAH')
+    logging.info(f'The biggest donation: {biggest_donation/100:,.2f} UAH')
     logging.info(f'Number of unique donators (by name + email): {len(unique_donators)}')
+    logging.info(f'Amount of excluded donators (< {min_amount/100:,.2f} UAH): {amount_of_excluded}')
+    logging.info(f'Amount of donators with minimal bet ({min_amount/100:,.2f} UAH): {amount_of_min_donators} ({100 * amount_of_min_donators/len(unique_donators):,.2f}%)')
     logging.info(f'Amount of slots for the raffle: {len(slots)}')
-    message = f'\nTotally raised: {total/100:,.2f} UAH\nThe biggest donation: {biggest_donation/100:,.2f} UAH\n' + \
-        f'Number of unique donators (by name + email) {len(unique_donators)}\nAmount of slots: {len(slots)}'
+    message = f'Totally raised: {total/100:,.2f} UAH\nThe biggest donation: {biggest_donation/100:,.2f} UAH\n' \
+        f'Number of unique donators (by name + email) {len(unique_donators)}\n' \
+        f'Amount of excluded donators (< {min_amount/100:,.2f} UAH): {amount_of_excluded}\n' \
+        f'Amount of donators with minimal bet ({min_amount/100:,.2f} UAH): {amount_of_min_donators} ({100 * amount_of_min_donators/len(unique_donators):,.2f}%)\n' \
+        f'Amount of slots for the raffle: {len(slots)}'
     send_telegram_message(telegram_token, chat_id, message)
 
     if len(slots) > 0:
@@ -106,16 +116,16 @@ def send_telegram_message(telegram_token: str, chat_id: str, message: str) -> No
     headers = {'Content-Type': 'application/json'}
     http = urllib3.PoolManager()
     r = http.request('POST', telegram_url, body=data, headers=headers)
-    logging.info(r.status)
+    logging.info('sending message to tg %s', r.data)
 
-def send_telegram_file(telegram_token: str, chat_id: str, file_name: str, file_data) -> None:
+def send_telegram_file(telegram_token: str, chat_id: str, file_name: str, file_data: bytes) -> None:
     '''
     send telegram message to the specified chat
     '''
     telegram_url = f'https://api.telegram.org/bot{telegram_token}/sendDocument?chat_id={chat_id}'
     http = urllib3.PoolManager()
     r = http.request_encode_body('POST', telegram_url, fields={'document': (file_name, file_data, 'text/plain')})
-    logging.info(r.data)
+    logging.info('sending file to tg %s', r.data)
 
 def lambda_handler(event, context):
     '''
@@ -131,21 +141,28 @@ def lambda_handler(event, context):
 
     if username in allowed_users.split(','):
         eet_tz = tz.gettz('Europe / Kyiv')
+        time_paging = timedelta(hours=12)
         # the raffle has been published on 2012-12-2 at 09:00 EET
         start_time = datetime(2022, 12, 2, 0, 0, 0, 0, eet_tz)
-        end_time = start_time.replace(day=start_time.day + 1)
+        end_time = start_time + time_paging
         today =  datetime(2022, 12, datetime.now().day + 1, 0, 0, 0, 0, eet_tz)
         monobank_data = []
+        monobank_limit = 500
         # iterate day by day
         while end_time <= today:
             from_time = int(datetime.timestamp(start_time))
             to_time = int(datetime.timestamp(end_time))
             status, monobank_data_responce = get_data_from_jar(monobank_token, from_time, to_time, jar_id)
-            logging.info('responce from mono %s for %s -> %s', status, start_time, end_time)
+            logging.info('responce from mono %s (%s) for %s -> %s', status, len(monobank_data_responce), start_time, end_time)
             if status == 200:
-                start_time = start_time.replace(day=start_time.day + 1)
-                end_time = end_time.replace(day=end_time.day + 1)
-                monobank_data.extend(monobank_data_responce)
+                # in case we've received exact number of the monobank API responce limit
+                if len(monobank_data_responce) == monobank_limit:
+                    time_paging = time_paging / 2
+                    end_time = start_time + time_paging
+                else:
+                    start_time = end_time
+                    end_time = end_time + time_paging
+                    monobank_data.extend(monobank_data_responce)
             else:
                 # API limit exceeded, wait
                 time.sleep(10)
