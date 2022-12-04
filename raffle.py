@@ -16,7 +16,7 @@ monobank_token = os.environ.get('monobank_token')
 jar_id = os.environ.get('monobank_jar_id')
 allowed_users = os.environ.get('users', 'oleksm')
 telegram_token = os.environ.get('telegram_token')
-
+s3_bucket = os.environ.get('s3_bucket')
 
 def mask_email(email: str) -> str:
     '''
@@ -128,6 +128,19 @@ def send_telegram_file(telegram_token: str, chat_id: str, file_name: str, file_d
     r = http.request_encode_body('POST', telegram_url, fields={'document': (file_name, file_data, 'text/plain')})
     logging.info('sending file to tg %s', r.data)
 
+def get_data_from_s3(bucket: str, key: str):
+    s3_client = boto3.client('s3')
+    try:
+        object = s3_client.get_object(Bucket=bucket, Key=key)
+        return json.loads(object['Body'].read().decode('utf-8'))
+    except:
+        logging.info('exception getting object from s3')
+    return []
+
+def put_data_to_s3(bucket: str, key: str, body):
+    s3_client = boto3.client('s3')
+    s3_client.put_object(Bucket=bucket, Key=key, Body=body)
+
 def lambda_handler(event, context):
     '''
     lamdba handler
@@ -146,13 +159,21 @@ def lambda_handler(event, context):
             client.invoke(FunctionName = context.invoked_function_arn, InvocationType='Event', Payload=payload)
     else:
         chat_id = event.get('chat_id')
+        # get data from s3
+        monobank_data = get_data_from_s3(s3_bucket, jar_id)
+        last_time = 0 if len(monobank_data) == 0 else max([el['time'] for el in monobank_data])
+        logging.info('last time on s3 logs %s', last_time)
+        # add additional data
+        hours_step = 12
         eet_tz = tz.gettz('Europe / Kyiv')
-        time_paging = timedelta(hours=12)
+        time_paging = timedelta(hours=hours_step)
         # the raffle has been published on 2012-12-2 at 09:00 EET
-        start_time = datetime(2022, 12, 2, 0, 0, 0, 0, eet_tz)
-        end_time = start_time + time_paging
-        today =  datetime(2022, 12, datetime.now().day + 1, 0, 0, 0, 0, eet_tz)
-        monobank_data = []
+        raffle_start_time = datetime(2022, 12, 2, 1, 0, 0, 0, eet_tz)
+        start_time = raffle_start_time if datetime.timestamp(raffle_start_time) > last_time else datetime.fromtimestamp(last_time)
+        end_time = start_time
+        end_time.replace(hour=0) + time_paging * (int(end_time.hour / hours_step) + 1)
+        today =  datetime(2022, 12, datetime.now().day + 1, 1, 0, 0, 0, eet_tz)
+        # monobank_data = []
         monobank_limit = 500
         # iterate day by day
         while end_time <= today:
@@ -173,6 +194,7 @@ def lambda_handler(event, context):
                 # API limit exceeded, wait
                 time.sleep(10)
             # logging.info(monobank_data)
+        put_data_to_s3(s3_bucket, jar_id, json.dumps(monobank_data))
         select_winner(monobank_data, chat_id)
 
     return {}
