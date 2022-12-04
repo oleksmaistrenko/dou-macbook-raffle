@@ -1,3 +1,4 @@
+import boto3
 from datetime import datetime, timedelta
 from dateutil import tz
 import json
@@ -131,15 +132,20 @@ def lambda_handler(event, context):
     '''
     lamdba handler
     '''
-    body = event['body']
-    tg_message = json.loads(body.replace('\n', ''))
-    logging.info(tg_message)
-    username = tg_message['message']['chat']['username']
-    chat_id = tg_message['message']['chat']['id']
-    text = tg_message['message']['text']
-    logging.info(f'got a message from {username}: {text}')
-
-    if username in allowed_users.split(','):
+    body = event.get('body')
+    if body != None:
+        tg_message = json.loads(body.replace('\n', ''))
+        logging.info(tg_message)
+        username = tg_message['message']['chat']['username']
+        chat_id = tg_message['message']['chat']['id']
+        text = tg_message['message']['text']
+        logging.info(f'got a message from {username}: {text}')
+        if username in allowed_users.split(','):
+            client = boto3.client('lambda')
+            payload = json.dumps({'chat_id': chat_id})
+            client.invoke(FunctionName = context.invoked_function_arn, InvocationType='Event', Payload=payload)
+    else:
+        chat_id = event.get('chat_id')
         eet_tz = tz.gettz('Europe / Kyiv')
         time_paging = timedelta(hours=12)
         # the raffle has been published on 2012-12-2 at 09:00 EET
