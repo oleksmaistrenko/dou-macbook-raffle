@@ -162,16 +162,19 @@ def lambda_handler(event, context):
         # get data from s3
         monobank_data = get_data_from_s3(s3_bucket, jar_id)
         last_time = 0 if len(monobank_data) == 0 else max([el['time'] for el in monobank_data])
+        if last_time > 0:
+            element_to_remove = [el for el in monobank_data if el['time'] == last_time][0]
+            monobank_data.remove(element_to_remove)
         logging.info('last time on s3 logs %s', last_time)
         # add additional data
         hours_step = 12
         eet_tz = tz.gettz('Europe / Kyiv')
         time_paging = timedelta(hours=hours_step)
         # the raffle has been published on 2012-12-2 at 09:00 EET
-        raffle_start_time = datetime(2022, 12, 2, 1, 0, 0, 0, eet_tz)
+        raffle_start_time = datetime(2022, 12, 2, 0, 0, 0, 0, eet_tz)
         start_time = raffle_start_time if datetime.timestamp(raffle_start_time) > last_time else datetime.fromtimestamp(last_time)
         end_time = start_time
-        end_time.replace(hour=0) + time_paging * (int(end_time.hour / hours_step) + 1)
+        end_time = end_time.replace(hour=0) + time_paging * (int(end_time.hour / hours_step) + 1)
         today =  datetime(2022, 12, datetime.now().day + 1, 1, 0, 0, 0, eet_tz)
         # monobank_data = []
         monobank_limit = 500
